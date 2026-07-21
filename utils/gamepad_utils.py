@@ -30,7 +30,8 @@ _control_loop_running = False
 
 
 class GamepadState:
-    """Holds the latest joystick readings and capture-button requests.
+    """Holds the latest joystick readings, capture-button requests, and
+    live bumper-held state.
 
     Written by the gamepad library's background thread (via the handlers
     registered in connect_gamepad()), read by the control loop thread
@@ -45,6 +46,10 @@ class GamepadState:
             button is pressed; the control loop's on_update callback is
             expected to check this each cycle and clear it after handling
         capture_blocked_requested (bool): same, for the "blocked" button
+        left_bumper_down (bool): True for as long as the left bumper is
+            currently held, False otherwise -- for live status displays,
+            unlike the one-shot capture_*_requested flags above
+        right_bumper_down (bool): same, for the right bumper
     """
 
     def __init__(self):
@@ -52,6 +57,8 @@ class GamepadState:
         self.right = 0.0
         self.capture_free_requested = False
         self.capture_blocked_requested = False
+        self.left_bumper_down = False
+        self.right_bumper_down = False
 
 
 def connect_gamepad(gamepad_type=Gamepad.XboxONE, joystick_left='LAS -Y',
@@ -121,14 +128,24 @@ def connect_gamepad(gamepad_type=Gamepad.XboxONE, joystick_left='LAS -Y',
 
     def free_button_pressed():
         state.capture_free_requested = True
+        state.left_bumper_down = True
+
+    def free_button_released():
+        state.left_bumper_down = False
 
     def blocked_button_pressed():
         state.capture_blocked_requested = True
+        state.right_bumper_down = True
+
+    def blocked_button_released():
+        state.right_bumper_down = False
 
     _register_axis_handler(gamepad, joystick_right, right_axis_moved)
     _register_axis_handler(gamepad, joystick_left, left_axis_moved)
-    _register_button_handler(gamepad, button_free, free_button_pressed)
-    _register_button_handler(gamepad, button_blocked, blocked_button_pressed)
+    _register_button_handler(gamepad, button_free, free_button_pressed, event='pressed')
+    _register_button_handler(gamepad, button_free, free_button_released, event='released')
+    _register_button_handler(gamepad, button_blocked, blocked_button_pressed, event='pressed')
+    _register_button_handler(gamepad, button_blocked, blocked_button_released, event='released')
 
     _gamepad = gamepad
 
@@ -175,15 +192,25 @@ def _register_axis_handler(gamepad, axis_name, callback):
         raise
 
 
-def _register_button_handler(gamepad, button_name, callback):
-    """Wraps gamepad.addButtonPressedHandler() with a clearer error message
-    if the requested button isn't available on the currently connected
-    controller, instead of a bare KeyError/ValueError traceback.
+def _register_button_handler(gamepad, button_name, callback, event='pressed'):
+    """Wraps gamepad.addButtonPressedHandler()/addButtonReleasedHandler()
+    with a clearer error message if the requested button isn't available
+    on the currently connected controller, instead of a bare
+    KeyError/ValueError traceback.
+
+    Args:
+        gamepad: the connected Gamepad object
+        button_name (str): button name, e.g. 'LB'
+        callback (callable): handler to register
+        event (str): 'pressed' or 'released'
     """
     try:
-        gamepad.addButtonPressedHandler(button_name, callback)
+        if event == 'pressed':
+            gamepad.addButtonPressedHandler(button_name, callback)
+        else:
+            gamepad.addButtonReleasedHandler(button_name, callback)
     except ValueError:
-        print(f"\nCouldn't register the '{button_name}' button.")
+        print(f"\nCouldn't register the '{button_name}' button ({event}).")
         print(_describe_gamepad_capabilities(gamepad))
         raise
 
