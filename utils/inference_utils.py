@@ -188,10 +188,9 @@ def show_inference_grid(model, class_names, device, data_dir, num_images=8, grid
     plt.show()
 
 
-def start_live_classification(camera, model, class_names, device, label_widget):
+def start_live_classification(camera, model, class_names, device, on_prediction):
     """Starts continuously classifying frames from `camera` as they
-    arrive, updating `label_widget` with the latest prediction and
-    confidence.
+    arrive, calling `on_prediction(label, confidence)` on every new frame.
 
     Uses register_observer() (idempotent) so re-running this cell doesn't
     stack a second classification loop on top of the first.
@@ -201,15 +200,17 @@ def start_live_classification(camera, model, class_names, device, label_widget):
         model (torch.nn.Module): a loaded, eval-mode model
         class_names (list[str]): class names in the model's output order
         device (torch.device): device the model lives on
-        label_widget (ipywidgets.Label or similar): widget whose .value
-            is updated with the current prediction
+        on_prediction (callable): called on every new frame as
+            on_prediction(label, confidence) -- e.g. to update a Label
+            widget's .value, recolor a status indicator, or anything else
+            a particular notebook needs done with each new prediction
 
     Returns:
         None
     """
     def classify_frame(change):
         predicted_label, confidence = predict_image(model, change['new'], class_names, device)
-        label_widget.value = f"{predicted_label} ({confidence:.0%})"
+        on_prediction(predicted_label, confidence)
 
     register_observer(camera, classify_frame, names='value')
 
